@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
+import { x } from 'tar'
 import { download, fetchJson, fetchText } from './http.mjs'
-import { InstallerError, tail } from './errors.mjs'
-import { run } from './exec.mjs'
+import { InstallerError } from './errors.mjs'
 import { log } from './log.mjs'
 
 const REPOSITORY = 'WhelkMail/WhelkMail'
@@ -106,13 +106,11 @@ export async function prepareSource(workspace, options) {
   }
 
   log.info(`Extracting ${resolved.ref}...`)
-  const extracted = await run('tar', ['-xzf', archive, '-C', workspace.app, '--strip-components=1'], {
-    capture: true,
-    allowFail: true,
-  })
-  if (extracted.code !== 0) {
+  try {
+    await x({ file: archive, cwd: workspace.app, strip: 1 })
+  } catch (error) {
     throw new InstallerError('Could not extract the source archive', {
-      hint: `${tail(extracted.stdout + extracted.stderr)}\nA working "tar" command is required.`,
+      hint: error.message,
     })
   }
 

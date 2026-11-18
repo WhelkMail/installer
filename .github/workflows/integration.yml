@@ -1,0 +1,87 @@
+name: Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: WhelkMail tag or branch (latest = newest release)
+        required: false
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: whelkmail-integration
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_TEST_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_TEST_ACCOUNT_ID }}
+      APP_PASSWORD: ${{ secrets.CF_TEST_APP_PASSWORD }}
+      TOKEN_ENC_KEY: ${{ secrets.CF_TEST_TOKEN_ENC_KEY }}
+      GITHUB_TOKEN: ${{ github.token }}
+      REF: ${{ inputs.ref }}
+      PROJECT_NAME: whelkmail-ci-${{ github.run_id }}
+      DB_NAME: whelkmail-ci-${{ github.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Verify test credentials
+        run: |
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID APP_PASSWORD TOKEN_ENC_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing secret for the integration test: $name"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Fresh install
+        run: >-
+          node bin/whelkmail-installer.mjs --yes --verbose
+          --project-name "$PROJECT_NAME" --db-name "$DB_NAME"
+          --ref "$REF"
+
+      - name: Rerun against the same deployment
+        run: >-
+          node bin/whelkmail-installer.mjs --yes --verbose
+          --project-name "$PROJECT_NAME" --db-name "$DB_NAME"
+          --ref "$REF"
+
+      - name: Rerun without TOKEN_ENC_KEY is refused
+        env:
+          TOKEN_ENC_KEY: ""
+        run: |
+          if node bin/whelkmail-installer.mjs --yes --verbose \
+            --project-name "$PROJECT_NAME" --db-name "$DB_NAME" \
+            --ref "$REF"; then
+            echo "::error::The installer reused the deployment without TOKEN_ENC_KEY"
+            exit 1
+          fi
+          echo "The installer refused to reuse the deployment without TOKEN_ENC_KEY."
+
+      - name: Cleanup
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_TEST_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_TEST_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4 pages project delete "$PROJECT_NAME" --yes || true
+          npx --yes wrangler@4 d1 delete "$DB_NAME" --yes || true

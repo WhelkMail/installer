@@ -1,9 +1,11 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { parseAccounts, pickAccount } from './accounts.mjs'
 import { InstallerError, tail } from './errors.mjs'
 import { npmCommand, run } from './exec.mjs'
 import { extractJson } from './json.mjs'
 import { log } from './log.mjs'
+import { ask } from './prompt.mjs'
 
 const DATABASE_ID = /(?:database_id\s*=\s*|"uuid"\s*:\s*)"([0-9a-fA-F-]{36})"/
 
@@ -71,17 +73,105 @@ export class Wrangler {
       })
     }
 
-    if (!this.options.accountId) {
-      const ids = [...new Set((whoami.stdout.match(/[0-9a-f]{32}/g) ?? []))]
-      if (ids.length === 1) {
-        this.options.accountId = ids[0]
-      } else if (ids.length > 1) {
-        log.warn('Multiple Cloudflare accounts found; using the first one. Pass --account-id to choose.')
-        this.options.accountId = ids[0]
-      }
+    await this.resolveAccount(parseAccounts(whoami.stdout), { interactive })
+    log.success('Cloudflare credentials verified')
+  }
+
+  async resolveAccount(accounts, { interactive }) {
+    let list = accounts
+    if (list.length === 0 && this.options.apiToken) {
+      list = await fetchTokenAccounts(this.options.apiToken)
     }
 
-    log.success('Cloudflare credentials verified')
+    if (this.options.accountId) {
+      this.options.accountId = String(this.options.accountId).trim().toLowerCase()
+      const match = list.find((account) => account.id === this.options.accountId)
+      if (match?.name && match.name !== match.id) {
+        log.info(`Account: ${match.name} (${match.id})`)
+      } else {
+        log.detail(`Using account ${this.options.accountId} from --account-id or the environment`)
+      }
+      return
+    }
+
+    if (list.length === 0) {
+      throw new InstallerError('Could not determine the Cloudflare account', {
+        hint: 'Pass --account-id <id> or set CLOUDFLARE_ACCOUNT_ID.',
+      })
+    }
+
+    if (list.length === 1) {
+      this.options.accountId = list[0].id
+      log.info(`Account: ${list[0].name} (${list[0].id})`)
+      return
+    }
+
+    if (!interactive) {
+      throw new InstallerError('Multiple Cloudflare accounts are available', {
+        hint: [
+          'This token can access more than one account. Choose one explicitly:',
+          '',
+          ...list.map((account, index) => `  ${index + 1}. ${account.name} (${account.id})`),
+          '',
+          'Pass --account-id <id> or set CLOUDFLARE_ACCOUNT_ID.',
+        ].join('\n'),
+      })
+    }
+
+    log.info('Multiple Cloudflare accounts are available:')
+    list.forEach((account, index) => {
+      log.info(`  ${index + 1}. ${account.name} (${account.id})`)
+    })
+    const answer = await ask(`Choose an account number (1-${list.length})`)
+    const chosen = pickAccount({ accounts: list, answer })
+    if (!chosen) {
+      throw new InstallerError(`Invalid account selection: ${answer || '(empty)'}`)
+    }
+    this.options.accountId = chosen.id
+    log.info(`Using ${chosen.name} (${chosen.id})`)
+  }
+
+  async preflight({ projectName, dbName }) {
+    if (this.options.apiToken) {
+      await verifyApiToken(this.options)
+    }
+
+    const listed = await this.run(['d1', 'list', '--json'], { capture: true, allowFail: true })
+    if (listed.code !== 0) {
+      throw new InstallerError('Cannot list D1 databases with these credentials', {
+        hint: `${tail(listed.stdout + listed.stderr)}\nCheck that the credentials can use Account -> D1 -> Edit on the selected account.`,
+      })
+    }
+
+    let databases = []
+    try {
+      const rows = extractJson(listed.stdout)
+      databases = Array.isArray(rows) ? rows : []
+    } catch {
+      log.detail('Could not parse "wrangler d1 list --json" during preflight')
+    }
+    const database =
+      databases.find((row) => (row.name ?? row.database_name) === dbName) ?? null
+
+    const pages = await this.run(['pages', 'project', 'list'], { capture: true, allowFail: true })
+    if (pages.code !== 0) {
+      throw new InstallerError('Cannot list Pages projects with these credentials', {
+        hint: `${tail(pages.stdout + pages.stderr)}\nCheck that the credentials can use Account -> Cloudflare Pages -> Edit on the selected account.`,
+      })
+    }
+    const project = new RegExp(
+      `(^|[^a-z0-9-])${escapeRegex(projectName)}([^a-z0-9-]|$)`,
+      'i',
+    ).test(pages.stdout)
+
+    if (database) {
+      log.warn(`D1 database "${dbName}" already exists and will be reused`)
+    }
+    if (project) {
+      log.warn(`Pages project "${projectName}" already exists and will be reused`)
+    }
+    log.success('Cloudflare permissions verified')
+    return { database, project }
   }
 
   async ensureD1(name) {
@@ -261,4 +351,66 @@ export class Wrangler {
     }
     log.detail(tail(result.stdout, 1500))
   }
+}
+
+async function fetchTokenAccounts(token) {
+  try {
+    const response = await fetch('https://api.cloudflare.com/client/v4/accounts?per_page=50', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': 'whelkmail-installer',
+      },
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!response.ok) {
+      log.detail(`Could not list accounts from the Cloudflare API (HTTP ${response.status})`)
+      return []
+    }
+    const body = await response.json()
+    return (body.result ?? [])
+      .filter((account) => account?.id)
+      .map((account) => ({
+        id: String(account.id).toLowerCase(),
+        name: String(account.name ?? account.id),
+      }))
+  } catch (error) {
+    log.detail(`Could not list accounts from the Cloudflare API: ${error.message}`)
+    return []
+  }
+}
+
+async function verifyApiToken(options) {
+  const headers = {
+    Authorization: `Bearer ${options.apiToken}`,
+    'User-Agent': 'whelkmail-installer',
+  }
+
+  const verified = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
+    headers,
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!verified.ok) {
+    throw new InstallerError('The Cloudflare API token is not valid', {
+      hint: `HTTP ${verified.status} from /user/tokens/verify`,
+    })
+  }
+
+  if (!options.accountId) {
+    return
+  }
+
+  const id = encodeURIComponent(options.accountId)
+  const account = await fetch(`https://api.cloudflare.com/client/v4/accounts/${id}`, {
+    headers,
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!account.ok) {
+    log.warn(
+      `Could not read account ${options.accountId} (HTTP ${account.status}); trying the D1 and Pages checks instead`,
+    )
+  }
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

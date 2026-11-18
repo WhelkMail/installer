@@ -47,6 +47,11 @@ test('help is a boolean flag', () => {
   assert.equal(options.help, true)
 })
 
+test('token key rotation is opt-in', () => {
+  assert.equal(parseArgs([]).options.rotateTokenKey, false)
+  assert.equal(parseArgs(['--rotate-token-key']).options.rotateTokenKey, true)
+})
+
 test('defaults are not shared between calls', () => {
   const first = defaultOptions()
   const second = defaultOptions()

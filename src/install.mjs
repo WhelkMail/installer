@@ -4,6 +4,12 @@ import { buildPagesConfig, ensureWorkerConfig, writePagesConfig } from './config
 import { InstallerError, tail } from './errors.mjs'
 import { npmCommand, run } from './exec.mjs'
 import { log } from './log.mjs'
+import {
+  fingerprintSecret,
+  planTokenKey,
+  readInstallerMeta,
+  writeInstallerMeta,
+} from './meta.mjs'
 import { initialiseDatabase } from './migrate.mjs'
 import {
   generateCronSecret,
@@ -30,16 +36,20 @@ export async function install(options) {
   const sourceDir = workspace.app
 
   try {
+    const wrangler = new Wrangler({ sourceDir, options })
+    await wrangler.ensure()
+
+    log.step('Checking Cloudflare access')
+    await wrangler.ensureAuth({ interactive: !options.yes })
+    await wrangler.preflight({ projectName: options.projectName, dbName: options.dbName })
+
     log.step('Preparing the WhelkMail source')
     const source = await prepareSource(workspace, options)
     log.success(`Using WhelkMail ${source.version} (${source.kind}: ${source.origin})`)
 
     log.step('Installing dependencies')
     await installDependencies(sourceDir)
-
-    const wrangler = new Wrangler({ sourceDir, options })
     await wrangler.ensure()
-    await wrangler.ensureAuth({ interactive: !options.yes })
 
     log.step('Provisioning Cloudflare resources')
     const database = await wrangler.ensureD1(options.dbName)
@@ -58,11 +68,23 @@ export async function install(options) {
       }),
     )
 
+    log.step('Checking the installation state')
+    const fresh = !(await wrangler.hasTable(database.name, 'accounts'))
+    const meta = await readInstallerMeta(wrangler, database.name)
+
     log.step('Configuring secrets')
     const password = await resolvePassword(options)
-    const tokenKey = await resolveTokenKey(options)
+    const tokenKey = await resolveTokenKey(options, {
+      storedFingerprint: meta.token_enc_key_sha256 ?? null,
+      fresh,
+    })
     await wrangler.putPagesSecret(options.projectName, 'APP_PASSWORD', password.value)
     await wrangler.putPagesSecret(options.projectName, 'TOKEN_ENC_KEY', tokenKey.value)
+    await writeInstallerMeta(wrangler, database.name, {
+      token_enc_key_sha256: tokenKey.fingerprint,
+      whelkmail_version: source.version,
+      project_name: options.projectName,
+    })
 
     let cronSecret = null
     if (options.cron) {
@@ -89,7 +111,6 @@ export async function install(options) {
     }
 
     log.step('Applying the database schema')
-    const fresh = !(await wrangler.hasTable(database.name, 'accounts'))
     if (fresh) {
       await wrangler.executeFile(database.name, 'db/schema.sql')
       log.success('Fresh database created from db/schema.sql')
@@ -130,6 +151,7 @@ export async function install(options) {
       r2Bucket: options.r2 ? options.r2Bucket : null,
       cron: options.cron,
       push: options.push,
+      tokenKeyFingerprint: tokenKey.fingerprint,
       generatedPassword: password.generated ? password.value : null,
       generatedTokenKey: tokenKey.generated ? tokenKey.value : null,
       generatedCronSecret: cronSecret && !options.cronSecret ? cronSecret : null,
@@ -210,24 +232,83 @@ async function resolvePassword(options) {
   return { value: generated, generated: true }
 }
 
-function resolveTokenKey(options) {
-  if (options.tokenEncKey) {
+async function resolveTokenKey(options, { storedFingerprint, fresh }) {
+  const plan = planTokenKey({
+    provided: options.tokenEncKey,
+    storedFingerprint,
+    fresh,
+    rotate: options.rotateTokenKey,
+  })
+
+  if (plan.action === 'use') {
     const problem = validateTokenKey(options.tokenEncKey)
     if (problem) {
       throw new InstallerError(problem)
     }
-    return { value: options.tokenEncKey.trim(), generated: false }
+    return {
+      value: options.tokenEncKey.trim(),
+      generated: false,
+      fingerprint: plan.fingerprint,
+    }
   }
-  if (options.isActions) {
-    throw new InstallerError('TOKEN_ENC_KEY is required in GitHub Actions', {
-      hint: 'Add a TOKEN_ENC_KEY repository secret: 32 random bytes encoded in base64.',
+
+  if (plan.action === 'generate' || plan.action === 'rotate') {
+    const generated = generateTokenKey()
+    if (plan.action === 'rotate') {
+      log.warn('Rotating TOKEN_ENC_KEY because --rotate-token-key was passed.')
+      log.warn('Stored mailbox credentials can no longer be decrypted and must be re-entered.')
+    }
+    log.warn(`Generated TOKEN_ENC_KEY: ${generated}`)
+    log.warn('Store it somewhere safe. Changing it later invalidates stored credentials.')
+    return {
+      value: generated,
+      generated: true,
+      fingerprint: fingerprintSecret(generated),
+    }
+  }
+
+  if (plan.action === 'mismatch') {
+    throw new InstallerError('TOKEN_ENC_KEY does not match this deployment', {
+      hint: [
+        `Stored fingerprint:   ${plan.storedFingerprint.slice(0, 16)}...`,
+        `Provided fingerprint: ${plan.fingerprint.slice(0, 16)}...`,
+        '',
+        'Pass the key used by the existing deployment, or pass --rotate-token-key',
+        'to replace it. Rotating invalidates stored mailbox credentials.',
+      ].join('\n'),
     })
   }
 
-  const generated = generateTokenKey()
-  log.warn(`Generated TOKEN_ENC_KEY: ${generated}`)
-  log.warn('Store it somewhere safe. Changing it later invalidates stored credentials.')
-  return { value: generated, generated: true }
+  if (!options.yes) {
+    const label =
+      plan.action === 'recover'
+        ? 'Existing TOKEN_ENC_KEY for this deployment'
+        : 'TOKEN_ENC_KEY (this deployment has no stored fingerprint)'
+    const typed = (await askSecret(label)).trim()
+    if (!typed) {
+      throw new InstallerError('TOKEN_ENC_KEY is required to reuse this deployment', {
+        hint: 'Pass the key in TOKEN_ENC_KEY, or pass --rotate-token-key to generate a new one and re-enter stored credentials.',
+      })
+    }
+    const problem = validateTokenKey(typed)
+    if (problem) {
+      throw new InstallerError(problem)
+    }
+    const fingerprint = fingerprintSecret(typed)
+    if (storedFingerprint && fingerprint !== storedFingerprint) {
+      throw new InstallerError('TOKEN_ENC_KEY does not match this deployment', {
+        hint: `Stored fingerprint: ${storedFingerprint.slice(0, 16)}..., provided: ${fingerprint.slice(0, 16)}...`,
+      })
+    }
+    return { value: typed, generated: false, fingerprint }
+  }
+
+  const reason = options.isActions
+    ? 'TOKEN_ENC_KEY is required in GitHub Actions to reuse an existing deployment'
+    : 'TOKEN_ENC_KEY is required to reuse this deployment'
+  throw new InstallerError(reason, {
+    hint: 'Set TOKEN_ENC_KEY to the key used by the existing deployment, or pass --rotate-token-key.',
+  })
 }
 
 async function generateVapid(dir) {

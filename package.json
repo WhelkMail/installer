@@ -32,5 +32,8 @@
     "d1",
     "installer"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "tar": "^7.5.23"
+  }
 }

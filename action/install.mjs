@@ -7,7 +7,7 @@ const env = process.env
 const input = (name) => String(env[name] ?? '').trim()
 const enabled = (name) => /^(1|true|yes|y|si)$/i.test(input(name))
 
-const required = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'APP_PASSWORD', 'TOKEN_ENC_KEY']
+const required = ['CLOUDFLARE_API_TOKEN', 'APP_PASSWORD', 'TOKEN_ENC_KEY']
 const missing = required.filter((name) => !env[name])
 if (missing.length > 0) {
   for (const name of missing) {

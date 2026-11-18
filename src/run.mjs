@@ -22,6 +22,9 @@ function printSummary(result, options) {
   log.info(`R2:        ${result.r2Bucket ?? 'disabled'}`)
   log.info(`Cron:      ${result.cron ? 'enabled' : 'disabled'}`)
   log.info(`Web Push:  ${result.push ? 'enabled' : 'disabled'}`)
+  if (result.tokenKeyFingerprint) {
+    log.info(`TOKEN_ENC_KEY fingerprint: ${result.tokenKeyFingerprint.slice(0, 16)}...`)
+  }
 
   if (result.generatedPassword) {
     log.warn(`APP_PASSWORD: ${result.generatedPassword}`)
@@ -64,10 +67,13 @@ export function writeStepSummary(result, options) {
     `- Cron: ${result.cron ? 'enabled' : 'disabled'}`,
     `- Web Push: ${result.push ? 'enabled' : 'disabled'}`,
     `- Account id: ${options.accountId ?? 'resolved by wrangler'}`,
+    `- TOKEN_ENC_KEY fingerprint: \`${String(result.tokenKeyFingerprint ?? '').slice(0, 16)}...\``,
     '',
     'Sign in with the `APP_PASSWORD` repository secret.',
     '',
     'Workers Free allows 10 ms CPU per request; IMAP/SMTP TLS can exceed it.',
+    '',
+    'Revoke the Cloudflare API token used for this install once you are done.',
     '',
   ]
   appendFileSync(file, `${lines.join('\n')}\n`)
