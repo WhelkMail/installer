@@ -1,0 +1,36 @@
+{
+  "name": "whelkmail-installer",
+  "version": "0.1.0",
+  "description": "Provision and deploy WhelkMail on Cloudflare Pages from the command line or GitHub Actions.",
+  "type": "module",
+  "bin": {
+    "whelkmail-installer": "bin/whelkmail-installer.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "action",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node bin/whelkmail-installer.mjs",
+    "test": "node --test",
+    "check": "node scripts/check.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WhelkMail/installer.git"
+  },
+  "keywords": [
+    "whelkmail",
+    "cloudflare",
+    "cloudflare-pages",
+    "d1",
+    "installer"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,118 @@
+name: Install WhelkMail
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: Cloudflare Pages project name
+        required: false
+        default: whelkmail
+        type: string
+      ref:
+        description: WhelkMail tag or branch (latest = newest release)
+        required: false
+        default: latest
+        type: string
+      db_name:
+        description: D1 database name
+        required: false
+        default: mail-client
+        type: string
+      branch:
+        description: Production branch for Pages
+        required: false
+        default: main
+        type: string
+      enable_r2:
+        description: Create and bind an R2 bucket (requires billing)
+        required: false
+        default: "no"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+      r2_bucket:
+        description: R2 bucket name (empty = project-archive)
+        required: false
+        default: ""
+        type: string
+      deploy_cron:
+        description: Deploy the 5-minute cron worker
+        required: false
+        default: "no"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+      enable_push:
+        description: Generate VAPID keys and deploy the cron worker
+        required: false
+        default: "no"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+      push_subject:
+        description: VAPID subject (mailto:you@example.com or https://...)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: whelkmail-install
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install installer dependencies
+        run: npm ci
+
+      - name: Verify required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          TOKEN_ENC_KEY: ${{ secrets.TOKEN_ENC_KEY }}
+        run: |
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID APP_PASSWORD TOKEN_ENC_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository secret: $name"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Install WhelkMail
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          TOKEN_ENC_KEY: ${{ secrets.TOKEN_ENC_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PROJECT_NAME: ${{ inputs.project_name }}
+          REF: ${{ inputs.ref }}
+          DB_NAME: ${{ inputs.db_name }}
+          BRANCH: ${{ inputs.branch }}
+          ENABLE_R2: ${{ inputs.enable_r2 }}
+          R2_BUCKET: ${{ inputs.r2_bucket }}
+          DEPLOY_CRON: ${{ inputs.deploy_cron }}
+          ENABLE_PUSH: ${{ inputs.enable_push }}
+          PUSH_SUBJECT: ${{ inputs.push_subject }}
+        run: node action/install.mjs
