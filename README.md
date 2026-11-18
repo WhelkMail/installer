@@ -1,6 +1,8 @@
-# WhelkMail Installer
+# WhelkMail Installer (beta)
 
 Set up your own [WhelkMail](https://github.com/WhelkMail/WhelkMail) on Cloudflare in a few minutes.
+
+> **Beta: the installer is in beta.** Behavior, flags and defaults may change between releases, and installs may fail in edge cases. Back up anything important and expect occasional breaking changes. Bug reports and feedback are welcome.
 
 > **This is not a website and not an app you download.** The installer is a small tool that creates a WhelkMail deployment inside **your** Cloudflare account. There is nothing to upload to a site, and the WhelkMail maintainers never see your credentials.
 
