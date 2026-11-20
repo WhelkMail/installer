@@ -164,9 +164,9 @@ If the npm package is not published yet, replace `npx whelkmail-installer` with 
 ```bash
 npx whelkmail-installer --dry-run          # show the plan, change nothing
 npx whelkmail-installer --r2               # include the optional R2 archive
-npx whelkmail-installer --cron             # deploy the 5-minute background worker
+npx whelkmail-installer --cron             # deploy the background worker
 npx whelkmail-installer --push             # Web Push keys and the cron worker
-npx whelkmail-installer --ref 1.0.1        # install a specific release
+npx whelkmail-installer --ref 1.2.0        # install a specific release
 npx whelkmail-installer --project-name mymail
 npx whelkmail-installer --source ../mail-client   # use a local checkout
 ```
@@ -179,7 +179,7 @@ npx whelkmail-installer --source ../mail-client   # use a local checkout
 | D1 database | Your Cloudflare account | Named `mail-client`, keeps accounts and mail metadata |
 | Secrets | The Pages project | `APP_PASSWORD`, `TOKEN_ENC_KEY`, optional `CRON_SECRET` and VAPID keys |
 | R2 bucket | Optional | Only with `--r2`; Cloudflare asks for billing to enable R2 |
-| Cron worker | Optional | Only with `--cron` or `--push`; runs every 5 minutes |
+| Cron worker | Optional | Only with `--cron` or `--push`; wakes every minute and syncs each account at its own interval |
 
 Nothing is stored in the installer repository. The temporary workspace used to build the app is deleted at the end.
 
@@ -219,7 +219,7 @@ Re-running the installer is safe: resources are reused, migrations are idempoten
 | `--branch <name>` | Production branch for the Pages project. Default: `main`. |
 | `--r2` | Create an R2 bucket and bind it as `BUCKET`. |
 | `--r2-bucket <name>` | R2 bucket name, implies `--r2`. Default: `<project>-archive`. |
-| `--cron` | Deploy the 5-minute cron worker. |
+| `--cron` | Deploy the cron worker (wakes every minute; see the Free plan notes). |
 | `--push` | Generate VAPID keys and deploy the cron worker. Implies `--cron`. |
 | `--push-subject <value>` | VAPID subject, `mailto:...` or `https://...`. Default: the deployment URL. |
 | `--account-id <id>` | Cloudflare account id. Required only when the credentials can access more than one account. |
@@ -273,7 +273,7 @@ The installer itself is free. The deployment can also run on free tiers, with on
 | D1 | 5 GB, daily read/write quotas | Fine for personal use |
 | R2 | 10 GB, free egress | Enabling R2 requires billing information on the account |
 | GitHub Actions | Unlimited on public repos, 2,000 minutes/month on private | The installer run takes a few minutes |
-| Cron worker | ~288 invocations/day | Well within the free quota |
+| Cron worker | ~1,440 invocations/day | Well within the free quota; use `*/5 * * * *` on Workers Free |
 
 **IMAP on the free plan is best-effort.** If a request exceeds 10 ms of CPU the deployment returns `CPU time limit exceeded`. Relay accounts that send over HTTP APIs avoid IMAP entirely and are the safest free configuration. Workers Paid (from $5/month) is the reliable option for IMAP.
 
