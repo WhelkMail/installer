@@ -165,7 +165,7 @@ async function latestTag(token) {
   }
 
   throw new InstallerError('Could not resolve the latest WhelkMail release', {
-    hint: 'Pass --ref <tag> (for example --ref 1.2.0) or set GITHUB_TOKEN to raise the API rate limit.',
+    hint: 'Pass --ref <tag> (for example --ref 1.3.0) or set GITHUB_TOKEN to raise the API rate limit.',
   })
 }
 

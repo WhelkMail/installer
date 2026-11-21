@@ -103,7 +103,7 @@ If the run fails, open the failed step in the log. The [Troubleshooting](#troubl
 
 ### Updating a browser installation
 
-The workflow uses a direct upload: pushing to the installer repository does not update your WhelkMail. To update, run the workflow again with `ref` set to the new WhelkMail release tag. The D1 database and the secrets are reused.
+The workflow uses a direct upload: pushing to the installer repository does not update your WhelkMail. To update, run the workflow again with `ref` set to the new WhelkMail release tag. The D1 database and the secrets are reused, and the migrations shipped with the release (including 031-035 in 1.3.0) are applied automatically.
 
 ## Path B: install from the terminal
 
@@ -166,7 +166,7 @@ npx whelkmail-installer --dry-run          # show the plan, change nothing
 npx whelkmail-installer --r2               # include the optional R2 archive
 npx whelkmail-installer --cron             # deploy the background worker
 npx whelkmail-installer --push             # Web Push keys and the cron worker
-npx whelkmail-installer --ref 1.2.0        # install a specific release
+npx whelkmail-installer --ref 1.3.0        # install a specific release
 npx whelkmail-installer --project-name mymail
 npx whelkmail-installer --source ../mail-client   # use a local checkout
 ```
