@@ -38,7 +38,7 @@ export async function initialiseDatabase(wrangler, sourceDir, database, { fresh 
   }
 
   if (plan.mode === 'record') {
-    const missing = await missingRequirements(wrangler, sourceDir, database, pending)
+    const missing = await missingRequirements(wrangler, sourceDir, database, files)
     if (missing.length > 0) {
       throw new InstallerError('The database schema is missing objects from some migrations', {
         hint: [
@@ -65,18 +65,68 @@ export async function initialiseDatabase(wrangler, sourceDir, database, { fresh 
   log.success(`Applied ${pending.length} migration(s)`)
 }
 
+export function netRequirements(entries) {
+  const tables = new Map()
+  const columns = new Map()
+  const indexes = new Map()
+
+  for (const { file, sql, requirements } of entries) {
+    const stripped = String(sql)
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/--[^\n]*/g, ' ')
+
+    const indexTables = new Map()
+    for (const match of stripped.matchAll(
+      /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)/gi,
+    )) {
+      indexTables.set(match[1], match[2])
+    }
+
+    for (const match of stripped.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(\w+)/gi)) {
+      const name = match[1]
+      tables.delete(name)
+      for (const [key, entry] of columns) {
+        if (entry.item.table === name) {
+          columns.delete(key)
+        }
+      }
+      for (const [key, entry] of indexes) {
+        if (entry.table === name) {
+          indexes.delete(key)
+        }
+      }
+    }
+    for (const match of stripped.matchAll(/DROP\s+INDEX\s+(?:IF\s+EXISTS\s+)?(\w+)/gi)) {
+      indexes.delete(match[1])
+    }
+
+    for (const item of requirements) {
+      if (item.kind === 'table') {
+        tables.set(item.name, { item, file })
+      } else if (item.kind === 'column') {
+        columns.set(`${item.table}.${item.name}`, { item, file })
+      } else {
+        indexes.set(item.name, { item, file, table: indexTables.get(item.name) ?? null })
+      }
+    }
+  }
+
+  return [...tables.values(), ...columns.values(), ...indexes.values()]
+}
+
 async function missingRequirements(wrangler, sourceDir, database, files) {
   const module = await import(
     pathToFileURL(join(sourceDir, 'scripts', 'migration-requirements.mjs')).href
   )
+  const entries = files.map((file) => {
+    const sql = readFileSync(join(sourceDir, 'db', 'migrations', file), 'utf8')
+    return { file, sql, requirements: module.requirementsFromSql(sql) }
+  })
   const missing = []
 
-  for (const file of files) {
-    const sql = readFileSync(join(sourceDir, 'db', 'migrations', file), 'utf8')
-    for (const item of module.requirementsFromSql(sql)) {
-      if (!(await requirementPresent(wrangler, database, item))) {
-        missing.push({ file, requirement: module.describeRequirement(item) })
-      }
+  for (const { item, file } of netRequirements(entries)) {
+    if (!(await requirementPresent(wrangler, database, item))) {
+      missing.push({ file, requirement: module.describeRequirement(item) })
     }
   }
 
