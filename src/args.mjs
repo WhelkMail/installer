@@ -137,7 +137,7 @@ export function helpText() {
     '',
     'Options:',
     '  --source <dir>         Use a local WhelkMail checkout instead of downloading a release',
-    '  --ref <tag|branch>     Source ref (default: latest GitHub release, e.g. 1.2.0)',
+    '  --ref <tag|branch>     Source ref (default: latest GitHub release, e.g. 1.4.0)',
     '  --project-name <name>  Pages project name (default: whelkmail)',
     '  --db-name <name>       D1 database name (default: mail-client)',
     '  --branch <name>        Production branch for Pages (default: main)',

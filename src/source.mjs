@@ -17,7 +17,7 @@ const EXCLUDED_DIRS = new Set([
   'coverage',
   'whelkmail-demo',
 ])
-const EXCLUDED_FILES = new Set(['wrangler.toml', join('worker', 'wrangler.toml')])
+const EXCLUDED_FILES = new Set(['wrangler.toml', 'wrangler.jsonc', join('worker', 'wrangler.toml')])
 const SECRET_FILE = /(^|[\\/])(\.env|\.dev\.vars)(\..*)?$/
 
 export async function createWorkspace() {
@@ -165,7 +165,7 @@ async function latestTag(token) {
   }
 
   throw new InstallerError('Could not resolve the latest WhelkMail release', {
-    hint: 'Pass --ref <tag> (for example --ref 1.3.0) or set GITHUB_TOKEN to raise the API rate limit.',
+    hint: 'Pass --ref <tag> (for example --ref 1.4.0) or set GITHUB_TOKEN to raise the API rate limit.',
   })
 }
 

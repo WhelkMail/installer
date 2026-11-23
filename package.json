@@ -1,6 +1,6 @@
 {
   "name": "whelkmail-installer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Provision and deploy WhelkMail on Cloudflare Pages from the command line or GitHub Actions.",
   "type": "module",
   "bin": {

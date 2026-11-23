@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { InstallerError } from './errors.mjs'
 
@@ -10,29 +10,43 @@ function quote(value) {
   return `"${text}"`
 }
 
+/**
+ * Pages uses the standard root `wrangler.jsonc`, the same file the Workers
+ * target and the Deploy to Cloudflare button read. Build a Pages-only config
+ * here: no `main`/`assets`, just the build output directory and bindings.
+ */
 export function buildPagesConfig({ projectName, dbName, dbId, r2Bucket = null }) {
-  const lines = [
-    `name = ${quote(projectName)}`,
-    'compatibility_date = "2026-11-01"',
-    'pages_build_output_dir = "./dist"',
-    '',
-    '[[d1_databases]]',
-    'binding = "DB"',
-    `database_name = ${quote(dbName)}`,
-    `database_id = ${quote(dbId)}`,
-    '',
-  ]
-
-  if (r2Bucket) {
-    lines.push('[[r2_buckets]]', 'binding = "BUCKET"', `bucket_name = ${quote(r2Bucket)}`, '')
+  const config = {
+    $schema: 'node_modules/wrangler/config-schema.json',
+    name: projectName,
+    compatibility_date: '2026-11-01',
+    pages_build_output_dir: './dist',
+    d1_databases: [
+      {
+        binding: 'DB',
+        database_name: dbName,
+        database_id: dbId,
+      },
+    ],
   }
 
-  return lines.join('\n')
+  if (r2Bucket) {
+    config.r2_buckets = [{ binding: 'BUCKET', bucket_name: r2Bucket }]
+  }
+
+  return `${JSON.stringify(config, null, 2)}\n`
 }
 
 export function writePagesConfig(sourceDir, config) {
-  const target = join(sourceDir, 'wrangler.toml')
+  const target = join(sourceDir, 'wrangler.jsonc')
   writeFileSync(target, config)
+
+  // Pages reads the standard root config and rejects a second legacy file.
+  const legacy = join(sourceDir, 'wrangler.toml')
+  if (existsSync(legacy)) {
+    rmSync(legacy, { force: true })
+  }
+
   return target
 }
 

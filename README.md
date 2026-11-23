@@ -6,6 +6,8 @@ Set up your own [WhelkMail](https://github.com/WhelkMail/WhelkMail) on Cloudflar
 
 > **This is not a website and not an app you download.** The installer is a small tool that creates a WhelkMail deployment inside **your** Cloudflare account. There is nothing to upload to a site, and the WhelkMail maintainers never see your credentials.
 
+> **Workers or Pages?** This installer targets the **Pages** deployment, which remains supported for existing installations. For the default **Workers** target, use the [Deploy to Cloudflare button](https://deploy.workers.cloudflare.com/?url=https://github.com/WhelkMail/WhelkMail) in the WhelkMail README: it clones the repository into your account, provisions D1/R2 and deploys the Worker. For Docker, follow the `deploy/docker` instructions in the repository.
+
 ## The short version
 
 You get your own webmail at an address like `https://your-site.pages.dev`, connected to the mailboxes you already own. Everything runs on your Cloudflare account.
@@ -103,7 +105,7 @@ If the run fails, open the failed step in the log. The [Troubleshooting](#troubl
 
 ### Updating a browser installation
 
-The workflow uses a direct upload: pushing to the installer repository does not update your WhelkMail. To update, run the workflow again with `ref` set to the new WhelkMail release tag. The D1 database and the secrets are reused, and the migrations shipped with the release (including 031-035 in 1.3.0) are applied automatically.
+The workflow uses a direct upload: pushing to the installer repository does not update your WhelkMail. To update, run the workflow again with `ref` set to the new WhelkMail release tag. The D1 database and the secrets are reused, and the migrations shipped with the release are applied automatically.
 
 ## Path B: install from the terminal
 
@@ -166,7 +168,7 @@ npx whelkmail-installer --dry-run          # show the plan, change nothing
 npx whelkmail-installer --r2               # include the optional R2 archive
 npx whelkmail-installer --cron             # deploy the background worker
 npx whelkmail-installer --push             # Web Push keys and the cron worker
-npx whelkmail-installer --ref 1.3.0        # install a specific release
+npx whelkmail-installer --ref 1.4.0        # install a specific release
 npx whelkmail-installer --project-name mymail
 npx whelkmail-installer --source ../mail-client   # use a local checkout
 ```
@@ -192,11 +194,11 @@ Everything below is for operators and developers. You do not need it to complete
 ## Provisioning flow
 
 1. Authenticate with Cloudflare, resolve the account (asking when several are available), and verify that D1 and Pages can be listed. This happens before anything is downloaded.
-2. Download the latest WhelkMail release tarball from GitHub, or copy a local checkout to a temporary directory. Local copies exclude `.env`, `.dev.vars`, `wrangler.toml`, `node_modules`, `dist`, `.git` and editor folders. The tarball is extracted in-process, so no external `tar` command is needed.
+2. Download the latest WhelkMail release tarball from GitHub, or copy a local checkout to a temporary directory. Local copies exclude `.env`, `.dev.vars`, `wrangler.toml`, `wrangler.jsonc`, `node_modules`, `dist`, `.git` and editor folders. The tarball is extracted in-process, so no external `tar` command is needed.
 3. Run `npm ci` and `npm run build`.
 4. Create or reuse the D1 database (`mail-client` by default) and read its id.
 5. Create or reuse the Pages project with the selected production branch.
-6. Write a temporary `wrangler.toml` with the `DB` binding and the optional `BUCKET` binding.
+6. Write a temporary `wrangler.jsonc` with the Pages build output, the `DB` binding and the optional `BUCKET` binding, removing any legacy `wrangler.toml`.
 7. Read the `installer_meta` table and compare the stored `TOKEN_ENC_KEY` fingerprint with the key for this run.
 8. Upload `APP_PASSWORD`, `TOKEN_ENC_KEY`, and optionally `CRON_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
 9. Apply `db/schema.sql` if the database is new, then record or apply migrations in `db/migrations` using `schema_migrations`.
@@ -283,7 +285,7 @@ The installer itself is free. The deployment can also run on free tiers, with on
 - Secrets are removed from the environment of every other child process, so `npm ci` and build scripts cannot read them.
 - The password prompt hides input; generated values are printed to the terminal and never written to disk.
 - The D1 database stores only a SHA-256 fingerprint of `TOKEN_ENC_KEY`, never the key itself. The fingerprint lets a rerun detect a wrong or missing key before it overwrites the secret.
-- Local `--source` copies exclude `.env`, `.dev.vars`, `wrangler.toml`, `node_modules`, `dist` and `.git`.
+- Local `--source` copies exclude `.env`, `.dev.vars`, `wrangler.toml`, `wrangler.jsonc`, `node_modules`, `dist` and `.git`.
 - The temporary workspace is deleted after the run unless `--keep` is used.
 - The installer collects no telemetry.
 - In the browser path, revoke the Cloudflare API token after the install. The workflow summary repeats this reminder.
@@ -311,7 +313,7 @@ src/install.mjs        provisioning flow
 src/wrangler.mjs       wrangler commands, preflight and auth
 src/meta.mjs           installer_meta and TOKEN_ENC_KEY fingerprint checks
 src/source.mjs         local copy and release download
-src/config.mjs         generated wrangler.toml files
+src/config.mjs         generated wrangler.jsonc files
 src/migrate.mjs        schema and migration runner over D1
 src/secrets.mjs        key and password generation
 action/install.mjs     GitHub Actions adapter
