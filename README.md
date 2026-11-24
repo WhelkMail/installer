@@ -1,5 +1,19 @@
 # WhelkMail Installer (beta)
 
+> **Deprecated — no longer maintained**
+>
+> The WhelkMail Cloudflare Pages Installer has been deprecated and is no longer maintained.
+>
+> New WhelkMail installations should use the official deployment instructions in the main repository:
+>
+> **[WhelkMail — Cloudflare Pages Deployment Guide](https://github.com/WhelkMail/WhelkMail/blob/main/docs/CLOUDFLARE.md)**
+>
+> Cloudflare Pages remains a supported deployment target. Only this standalone installer is being discontinued. Manual deployment is now the recommended installation method.
+>
+> **Existing installations:** Archiving this repository does not affect Cloudflare resources or WhelkMail instances that have already been deployed. However, this installer will not receive further updates, fixes, or compatibility improvements. Existing users should refer to the main repository for current deployment and upgrade instructions.
+>
+> This repository is kept available for reference and for existing installations, but should not be used for new deployments.
+
 Set up your own [WhelkMail](https://github.com/WhelkMail/WhelkMail) on Cloudflare in a few minutes.
 
 > **Beta: the installer is in beta.** Behavior, flags and defaults may change between releases, and installs may fail in edge cases. Back up anything important and expect occasional breaking changes. Bug reports and feedback are welcome.
